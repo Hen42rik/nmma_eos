@@ -209,7 +209,7 @@ def getFilteredMag(mag, filt):
     # are kind of justifiable because the spectral
     # commonly goes as F_\nu \propto \nu^\alpha,
     # where \nu is the frequency.
-    if filt in unprocessed_filt or filt.startswith(("radio", "X-ray")):
+    if filt in unprocessed_filt or filt.startswith(("radio", "X-ray", "XRT")):
         return mag[filt]
     elif filt in sncosmo_maps:
         return mag[sncosmo_maps[filt]]
@@ -374,6 +374,10 @@ def get_default_filts_lambdas(filters=None):
                 # adding to the list
                 filts_slice.append(filt)
                 lambdas_slice.append(scipy.constants.c / freq)
+            elif filt =="XRT0.3-10":
+                freq = np.linspace(7.253967726254754e+16, 2.417989242084918e+18, 10)
+                filts_slice.append(filt)
+                lambdas_slice.append(scipy.constants.c/ freq)
             else:
                 try:
                     ii = filts.index(filt)
@@ -385,7 +389,7 @@ def get_default_filts_lambdas(filters=None):
                     lambdas_slice.append(lambdas[ii])
 
         filts = filts_slice
-        lambdas = np.array(lambdas_slice)
+        lambdas = lambdas_slice
 
     return filts, lambdas
 
@@ -641,23 +645,25 @@ def grb_lc(t_day, Ebv, param_dict, filters=None):
     default_time = np.logspace(np.log10(tStart), np.log10(tEnd), base=10.0, num=tnode)
     filts, lambdas = get_default_filts_lambdas(filters=filters)
 
-    nu_0s = scipy.constants.c / lambdas
+    nu_filters = [scipy.constants.c / l for l in lambdas]
 
     if Ebv != 0.0:
-        ext = extinctionFactorP92SMC(nu_0s, Ebv, param_dict["z"])
+        ext = extinctionFactorP92SMC(nu_filters, Ebv, param_dict["z"])
     else:
-        ext = np.ones(len(nu_0s))
-
-    times = np.empty((len(default_time), len(filts)))
-    nus = np.empty((len(default_time), len(filts)))
-
-    times[:, :] = default_time[:, None]
-    for nu_idx, nu_0 in enumerate(nu_0s):
-        nus[:, nu_idx] = nu_0
+        ext = np.ones(len(nu_filters))
+    
+    nus = []
+    # this is a bit dumb, but there is no quicker way to flatten a list of floats and np.arrays
+    for nu in nu_filters: 
+        if hasattr(nu, "__iter__"): 
+            nus.extend(nu)
+        else:
+            nus.append(nu)
+    nus = np.sort(nus)
 
     # output flux density is in milliJansky
     try:
-        mJys = fluxDensity(times, nus, **param_dict)
+        mJys = fluxDensity(*np.meshgrid(default_time, nus), **param_dict)
 
     except TimeoutError:
         return t_day, np.zeros(t_day.shape), {}
@@ -671,6 +677,15 @@ def grb_lc(t_day, Ebv, param_dict, filters=None):
     lbol = 1e43 * np.ones(t_day.shape)
 
     for filt_idx, filt in enumerate(filts):
+
+        Jy = interp.interp1d(nus, Jys, axis=0)(nu_filters[filt_idx])
+
+        if Jy.ndim==2: 
+            # TODO: here we average over the frequencies, 
+            # because the XRT0.3-10 filter is defined that way
+            # In other bandpasses however, we would need to integrate the flux 
+            # and then convert them properly to magnitudes
+            Jy = np.trapz(y=Jy, x=nu_filters[filt_idx], axis=0) / (nu_filters[filt_idx][-1] - nu_filters[filt_idx][0])
 
         Jy = Jys[:, filt_idx] * ext[filt_idx]
 

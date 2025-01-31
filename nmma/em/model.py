@@ -1008,6 +1008,9 @@ def create_light_curve_model_from_args(
                 converted_parameters["luminosity_distance"] = distance
                 added_keys = added_keys + ["luminosity_distance"]
             return converted_parameters, added_keys
+   
+    elif args.parameter_conversion is not None:
+        parameter_conversion = args.parameter_conversion
 
     else:
         parameter_conversion = None

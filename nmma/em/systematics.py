@@ -40,6 +40,7 @@ ALLOWED_FILTERS = [
     "ztfg",
     "ztfi",
     "ztfr",
+    "XRT0.3-10"
 ]
 
 ALLOWED_DISTRIBUTIONS = dict(inspect.getmembers(analytical, inspect.isclass))

@@ -149,6 +149,11 @@ def get_parser(**kwargs):
         help="Jet type to used used for GRB afterglow light curve (default: 0)",
     )
     parser.add_argument(
+        "--parameter-conversion",
+        type=str,
+        help="Path to a .py file with a conversion_function for the parameters to sample over. If none is provided, no the parameters from the prior will not be converted."
+    )
+    parser.add_argument(
         "--error-budget",
         type=str,
         default="1.0",
@@ -493,6 +498,14 @@ def analysis(args):
             raise ValueError("Need at least one valid filter.")
     else:
         filters = None
+    
+    if args.parameter_conversion:
+        import importlib.util
+        module_name = os.path.splitext(os.path.basename(args.parameter_conversion))[0]
+        spec = importlib.util.spec_from_file_location(module_name, args.parameter_conversion)
+        conversion_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(conversion_module)
+        args.parameter_conversion = conversion_module.parameter_conversion
 
     # create the kilonova data if an injection set is given
     if args.injection:

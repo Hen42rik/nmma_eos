@@ -217,8 +217,11 @@ def create_prior_from_args(model_names, args):
         priors = bilby.core.prior.PriorDict(
             args.prior, conversion_function=convert_mtot_mni
         )
+    elif args.parameter_conversion is not None:
+        priors = bilby.gw.prior.PriorDict(args.prior, conversion_function = lambda x: args.parameter_conversion(x)[0])
+            
     else:
-        priors = bilby.gw.prior.PriorDict(args.prior)
+        priors = bilby.gw.prior.PriorDict(args.prior) #TODO: add conversion function here
 
     # setup for Ebv
     if 'Ebv' not in priors:
