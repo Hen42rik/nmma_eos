@@ -256,7 +256,11 @@ def create_prior_from_args(model_names, args):
         )
 
         priors_dict["inclination_EM"] = ConditionalGaussianIotaGivenThetaCore(**setup)
-        priors = bilby.gw.prior.ConditionalPriorDict(priors_dict)
+
+        if args.parameter_conversion is not None:
+            priors = bilby.gw.prior.ConditionalPriorDict(priors_dict, conversion_function=lambda x: args.parameter_conversion(x)[0])
+        else:
+            priors = bilby.gw.prior.ConditionalPriorDict(priors_dict)
 
     if args.fits_file:
         priors = inclination_prior_from_fits(priors, args)

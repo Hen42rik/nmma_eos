@@ -1,4 +1,5 @@
 import copy
+import re
 
 import json
 import numpy as np
@@ -209,7 +210,7 @@ def getFilteredMag(mag, filt):
     # are kind of justifiable because the spectral
     # commonly goes as F_\nu \propto \nu^\alpha,
     # where \nu is the frequency.
-    if filt in unprocessed_filt or filt.startswith(("radio", "X-ray", "XRT")):
+    if filt in unprocessed_filt or filt.startswith(("radio", "X-ray", "int")):
         return mag[filt]
     elif filt in sncosmo_maps:
         return mag[sncosmo_maps[filt]]
@@ -374,8 +375,13 @@ def get_default_filts_lambdas(filters=None):
                 # adding to the list
                 filts_slice.append(filt)
                 lambdas_slice.append(scipy.constants.c / freq)
-            elif filt =="XRT0.3-10":
-                freq = np.linspace(7.253967726254754e+16, 2.417989242084918e+18, 10)
+            elif filt.startswith("int"):
+                energy1, energy2 = re.findall(r"\d+\.\d+|\d+", filt)
+                eV = 1.602176634e-19  # J
+                h = 6.62607015e-34 # J s
+                nu1 = float(energy1)*1000* eV / h
+                nu2 = float(energy2)*1000* eV / h
+                freq = np.linspace(nu1, nu2, 10)
                 filts_slice.append(filt)
                 lambdas_slice.append(scipy.constants.c/ freq)
             else:
@@ -663,9 +669,24 @@ def grb_lc(t_day, Ebv, param_dict, filters=None):
 
     # output flux density is in milliJansky
     try:
-        mJys = fluxDensity(*np.meshgrid(default_time, nus), **param_dict)
+        if isinstance(param_dict['E0'], np.ndarray):
+            E0 = param_dict.pop('E0')
+            vec_func = np.vectorize(
+                 lambda i: fluxDensity(
+                     default_time[i], 
+                     nus, 
+                     E0=E0[i], 
+                     **param_dict
+                 ), 
+                 otypes=[np.ndarray]
+            )
+            mJys = vec_func(np.arange(default_time.shape[0]))
+            mJys = np.stack(mJys)
+            mJys = mJys.T
+        else:
+            mJys = fluxDensity(*np.meshgrid(default_time, nus), **param_dict)
 
-    except TimeoutError:
+    except:
         return t_day, np.zeros(t_day.shape), {}
 
     Jys = 1e-3 * mJys
@@ -679,6 +700,7 @@ def grb_lc(t_day, Ebv, param_dict, filters=None):
     for filt_idx, filt in enumerate(filts):
 
         Jy = interp.interp1d(nus, Jys, axis=0)(nu_filters[filt_idx])
+        Jy = Jy * ext[filt_idx]
 
         if Jy.ndim==2: 
             # TODO: here we average over the frequencies, 
@@ -687,7 +709,6 @@ def grb_lc(t_day, Ebv, param_dict, filters=None):
             # and then convert them properly to magnitudes
             Jy = np.trapz(y=Jy, x=nu_filters[filt_idx], axis=0) / (nu_filters[filt_idx][-1] - nu_filters[filt_idx][0])
 
-        Jy = Jys[:, filt_idx] * ext[filt_idx]
 
         # see https://en.wikipedia.org/wiki/AB_magnitude
         mag_d = -48.6 + -1 * np.log10(Jy / 1e23) * 2.5

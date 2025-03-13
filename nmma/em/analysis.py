@@ -149,6 +149,12 @@ def get_parser(**kwargs):
         help="Jet type to used used for GRB afterglow light curve (default: 0)",
     )
     parser.add_argument(
+        "--energy-injection",
+        action="store_true",
+        default=False,
+        help="To include energy injection for GRB model (default: False)",
+    )
+    parser.add_argument(
         "--parameter-conversion",
         type=str,
         help="Path to a .py file with a conversion_function for the parameters to sample over. If none is provided, no the parameters from the prior will not be converted."
@@ -822,7 +828,6 @@ def analysis(args):
             sampler_kwargs["maxiter"] = 1
 
     #print("passing arguments to bilby")
-
     result = bilby.run_sampler(
         likelihood,
         priors,
