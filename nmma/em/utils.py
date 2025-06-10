@@ -362,28 +362,24 @@ def get_default_filts_lambdas(filters=None):
                 # adding to the list
                 filts_slice.append(filt)
                 lambdas_slice.append(scipy.constants.c / freq)
-            elif filt.startswith("X-ray-") and filt not in filts:
+            elif filt.endswith("keV") and filt not in filts:
                 # for additional X-ray filters that not in the list
                 # calculate the lambdas based on the filter name
                 # split the filter name
-                energy_string = filt.replace("X-ray-", "")
-                energy_unit = energy_string[-3:]
-                energy_val = float(energy_string.replace(energy_unit, ""))
-                # make use of the astropy.units to be more flexible
-                energy = astropy.units.Quantity(energy_val, unit=energy_unit)
-                freq = energy.to("eV").value * scipy.constants.eV / scipy.constants.h
-                # adding to the list
-                filts_slice.append(filt)
-                lambdas_slice.append(scipy.constants.c / freq)
-            elif filt.startswith("int"):
-                energy1, energy2 = re.findall(r"\d+\.\d+|\d+", filt)
-                eV = 1.602176634e-19  # J
-                h = 6.62607015e-34 # J s
-                nu1 = float(energy1)*1000* eV / h
-                nu2 = float(energy2)*1000* eV / h
-                freq = np.linspace(nu1, nu2, 10)
-                filts_slice.append(filt)
-                lambdas_slice.append(scipy.constants.c/ freq)
+                if bool(re.match(r'^.*[^0-9.]-\d+(\.\d*)?keV$', filt)):
+                   energy = float(re.findall(r"\d+(?:\.\d*)?", filt)[-1])
+                   freq = energy*1000*scipy.constants.eV / scipy.constants.h
+                   filts_slice.append(filt)
+                   lambdas_slice.append(scipy.constants.c / freq)
+
+                elif bool(re.match(r'^.*[^0-9.]-\d+(\.\d*)?-\d+(\.\d*)?keV$', filt)):
+                    energy1, energy2 = re.findall(r"\d+(?:\.\d*)?", filt)
+                    nu1 = float(energy1)*1000*scipy.constants.eV / scipy.constants.h
+                    nu2 = float(energy2)*1000*scipy.constants.eV / scipy.constants.h
+                    freq = np.linspace(nu1, nu2, 20)
+                    filts_slice.append(filt)
+                    lambdas_slice.append(scipy.constants.c/ freq)
+                    
             else:
                 try:
                     ii = filts.index(filt)
@@ -662,10 +658,11 @@ def grb_lc(t_day, Ebv, param_dict, filters=None):
     # this is a bit dumb, but there is no quicker way to flatten a list of floats and np.arrays
     for nu in nu_filters: 
         if hasattr(nu, "__iter__"): 
-            nus.extend(nu)
+            continue #nus.extend(nu)
         else:
             nus.append(nu)
     nus = np.sort(nus)
+    nus = np.concatenate((nus, np.linspace(300*scipy.constants.eV/ scipy.constants.h, 1e4*scipy.constants.eV/ scipy.constants.h, 15)))
 
     # output flux density is in milliJansky
     try:
@@ -698,7 +695,6 @@ def grb_lc(t_day, Ebv, param_dict, filters=None):
     lbol = 1e43 * np.ones(t_day.shape)
 
     for filt_idx, filt in enumerate(filts):
-
         Jy = interp.interp1d(nus, Jys, axis=0)(nu_filters[filt_idx])
         Jy = Jy * ext[filt_idx]
 
