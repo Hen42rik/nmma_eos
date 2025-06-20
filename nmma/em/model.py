@@ -563,15 +563,14 @@ class GRBLightCurveModel(LightCurveMixin):
         if not self.energy_injection:
             grb_param_dict["E0"] = 10 ** new_parameters["log10_E0"]
         else:
+
+            log10_Estart = new_parameters["log10_Estart"]
             # additional parameters
-            energy_exponential_names = sorted([
+            delta_log10_E_names = sorted([
                 key for key in new_parameters
-                if key.startswith('energy_exponential')
+                if key.startswith('delta_log10_E')
             ])
-            log10_Eend_names = sorted([
-                key for key in new_parameters
-                if key.startswith('log10_Eend')
-            ])
+
             t_start_names = sorted([
                 key for key in new_parameters
                 if key.startswith('t_start')
@@ -580,67 +579,48 @@ class GRBLightCurveModel(LightCurveMixin):
                 key for key in new_parameters
                 if key.startswith('injection_duration')
             ])
-            lists = [
-                energy_exponential_names, log10_Eend_names,
-                t_start_names, injection_duration_names
-            ]
+            lists = [delta_log10_E_names, t_start_names, injection_duration_names]
             lengths = [len(lst) for lst in lists]
             assert (
                 all(length == lengths[0] for length in lengths)
                 and lengths[0] >= 1
             ), "Parameter missing for the GRB energy injection model"
+            
             # fetch parameters
-            energy_exponentials = np.array([
-                new_parameters[key] for key in energy_exponential_names
+            delta_log10_Es = np.array([
+                new_parameters[key] for key in delta_log10_E_names
             ])
-            log10_Eends = np.array([
-                new_parameters[key] for key in log10_Eend_names
-            ])
+
             t_starts = np.array([
                 new_parameters[key] for key in t_start_names
             ])
+
             injection_durations = np.array([
                 new_parameters[key] for key in injection_duration_names
             ])
+
             # construct additional parameters
             t_ends = t_starts + injection_durations
-            # the Estart defined by the first energy injection epoach
-            # for the rest of the epochs, the Estart is the Eend of the previous one
-            log10_Estart_0 = (
-                log10_Eends[0]
-                + energy_exponentials[0] * np.log10(t_starts[0] / t_ends[0])
-            )
-            log10_Estarts = np.concatenate((
-                [log10_Estart_0],
-                log10_Eends[:-1]
-            ))
+
             # populate the E0 along the sample_times
-            log10_E0 = np.zeros(len(sample_times))
+            log10_E0 = np.full_like(sample_times, log10_Estart)
+            log10_Eend = log10_Estart
+
             # now adjust the log10_E0
-            for t_start, t_end, log10_Estart, log10_Eend, exp in zip(
-                t_starts, t_ends, log10_Estarts, log10_Eends, energy_exponentials
+            for t_start, t_end, delta_log10_E in zip(
+                t_starts, t_ends, delta_log10_Es
             ):
-                # Before t_start (set to E_start if it's not already set)
-                log10_E0[sample_times <= t_start] = np.where(
-                    log10_E0[sample_times <= t_start] == 0,
-                    log10_Estart,
-                    log10_E0[sample_times <= t_start]
-                )
-                # After t_end (set to E_end if it's not already set)
-                log10_E0[sample_times >= t_end] = np.where(
-                    log10_E0[sample_times >= t_end] == 0,
-                    log10_Eend,
-                    log10_E0[sample_times >= t_end]
-                )
+                log10_Eend += delta_log10_E
+
                 # Between t_start and t_end
                 # apply exponential formula if it's not already set
-                mask = (sample_times > t_start) & (sample_times < t_end)
-                time_scale = np.log10(sample_times[mask] / t_end)
-                log10_E0[mask] = np.where(
-                    log10_E0[mask] == 0,
-                    log10_Eend + exp * time_scale,
-                    log10_E0[mask]
-                )
+                mask = (sample_times >= t_start) & (sample_times <= t_end)
+                log10_E0[mask] = np.interp(sample_times[mask], [t_start, t_end], [log10_Eend-delta_log10_E, log10_Eend])
+
+                # After t_end (set to E_end if it's not already set)
+                mask = sample_times >t_end
+                log10_E0[mask] = log10_Eend
+            
             # now place the array into the param_dict
             grb_param_dict["E0"] = 10**log10_E0
         # make sure L0, q and ts are also passed
@@ -663,6 +643,8 @@ class GRBLightCurveModel(LightCurveMixin):
             grb_param_dict["b"] = new_parameters["b"]
             if "thetaWing" in new_parameters:
                 grb_param_dict["thetaWing"] = new_parameters["thetaWing"]
+        
+        grb_param_dict["counterjet"] = new_parameters.get("counterjet", False)
 
         Ebv = new_parameters.get("Ebv", 0.0)
 
