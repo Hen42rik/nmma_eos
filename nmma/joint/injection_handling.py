@@ -60,7 +60,7 @@ class NMMAInjectionCreator(InjectionCreator):
         self.filename = set_filename(args.injection_file, args)
 
         # FIXME Weizmann: restores nmma 0.2.3's --binary-type/--eject
-        # behaviour -- see joint_parsing.py's --binary-type help for why
+        # behaviour, see joint_parsing.py's --binary-type help for why
         # this is needed alongside (not instead of) --tests/--post-processing.
         self.binary_type_filter = getattr(args, "binary_type", None)
         if self.binary_type_filter is not None and not getattr(args, "eos_file", None):
