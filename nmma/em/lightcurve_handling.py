@@ -129,17 +129,22 @@ def compute_chisquare_dict(transient, model_data, model_time, model_error, verbo
                 sigma_y[finite_idx],
             )
             
-            offset = (y_det - np.interp(t_det,model_time, model_data[filt])) ** 2
+            signed_diff = y_det - np.interp(t_det,model_time, model_data[filt])
+            offset = signed_diff ** 2
             try:
                 errors = np.interp(t_det,model_time, model_error[filt])
             except ValueError:
-                errors = model_error[filt] 
+                errors = model_error[filt]
             total_unc = sigma_y_det**2 + errors**2
             chi2_per_filt = np.sum(offset / total_unc)
             # store the data
             chi2 += chi2_per_filt
             dof += n_finite
-            mismatches[filt] = (offset, total_unc)
+            # signed_diff kept alongside offset/total_unc so callers can plot
+            # a signed, normalized residual (signed_diff / sqrt(total_unc))
+            # instead of the unsigned, unnormalized `offset`, see
+            # plotting_utils.basic_em_analysis_plot.
+            mismatches[filt] = (offset, total_unc, signed_diff)
             chi2_dict[filt] = float(chi2_per_filt / n_finite)
 
             if verbose:
