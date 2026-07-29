@@ -50,7 +50,13 @@ def download(file_info):
     resp = requests.get(url, stream=True)
     total = int(resp.headers.get("content-length", 0))
     chunk_size = 4096
-    file_content = b""
+    # FIXME Weizmann: this used to declare file_content = b"" and never
+    # append downloaded chunks to it, then check len(file_content) != total
+    # belown, always comparing 0 to total, so every download (even a fully
+    # successful one, correctly written to disk chunk by chunk) raised
+    # "Only 0 of N bytes were downloaded". Track the real byte count written
+    # instead.
+    downloaded = 0
 
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, "wb") as f, tqdm(
@@ -62,12 +68,13 @@ def download(file_info):
     ) as pbar:
         for chunk in resp.iter_content(chunk_size=chunk_size):
             f.write(chunk)
+            downloaded += len(chunk)
             pbar.update(len(chunk))
 
-    if len(file_content) != total:
+    if downloaded != total:
         raise ValueError(
             f"Downloaded file {filepath} is incomplete. "
-            f"Only {len(file_content)} of {total} bytes were downloaded."
+            f"Only {downloaded} of {total} bytes were downloaded."
         )
 
     return filepath
@@ -88,8 +95,15 @@ def decompress(file_path):
 
 
 def download_and_decompress(file_info):
-    download(file_info)
-    decompress(file_info[1])
+    filepath = download(file_info)
+    # FIXME Weizmann: this used to call decompress() unconditionally, but
+    # filepaths/urls are built from core_format/filter_format ("joblib" or
+    # "h5"), never "lzma" -- so downloaded files are never actually
+    # lzma-compressed, and decompress()'s own extension check would always
+    # reject them with "is not a .lzma file". Only decompress when the
+    # downloaded file is actually a .lzma archive.
+    if str(filepath).endswith(".lzma"):
+        decompress(filepath)
 
 
 def download_models_list(models_home=None):

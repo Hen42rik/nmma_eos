@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib.ticker import NullFormatter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from itertools import cycle
 import numpy as np
@@ -12,13 +13,30 @@ nmma_colors = fig_setup()
 ################# MAIN PLOTS #################
 ##############################################
 def basic_em_analysis_plot(
-        transient, plot_filters, mags_to_plot, error_dict, chi2_dict, 
+        transient, plot_filters, mags_to_plot, error_dict, chi2_dict,
         mismatches, sub_model_plot_props, xlim, ylim, save_path,
-        ncols = 2, fig = None, shared_data = True,
+        ncols = None, fig = None, shared_data = True,
         markersize = 8, **kwargs):
 
     ### setup to get quantities
     filter_names = list(plot_filters.keys())
+    if ncols is None:
+        # Dynamic column count: one row for up to 3 filters (e.g.
+        # ztfg/ztfr/ztfi); beyond that, pick whichever of {2, 3} columns
+        # leaves the fewest empty grid cells, preferring the smaller (wider
+        # panels, easier to read a light curve) on a tie. E.g. 5 or 7
+        # filters used to always get 3 columns (1-2 dead cells) even though
+        # 2 columns leaves just as few or fewer; 6 filters is a tie (both
+        # leave 0 empty), so it now picks 2 columns instead of 3.
+        n_filt = len(filter_names)
+        if n_filt <= 3:
+            ncols = n_filt
+        else:
+            ncols = min((2, 3), key=lambda c: ((-n_filt) % c, c))
+        # old fixed rule (1 row up to 3, 2 cols for 4, 3 cols beyond that):
+        # ncols = n_filt if n_filt <= 3 else (2 if n_filt == 4 else 3)
+        # old fixed default, pass ncols=2 explicitly to get this back:
+        # ncols = 2
     def_data_colours = plt.cm.plasma(np.linspace(0, 1, len(filter_names)))[::-1]
     fit_color = kwargs.pop('color', next(nmma_colors))
     marker = kwargs.pop('marker', next(marker_cycle)) 
@@ -62,21 +80,33 @@ def basic_em_analysis_plot(
         plot_bestfit_with_errors(ax_sum, time, mags_to_plot[filt], error_dict[filt], sub_model_plot_props, cnt, fit_color)
  
         ax_delta = fig.axes[cnt+n_axes]
-        
+        # sharex(ax_sum) means ax_delta inherits the log scale set in
+        # adjust_observations(), but not its formatter -- without this, log
+        # minor ticks (4x10^-1, 6x10^-1, ...) print a label at every minor
+        # tick and crowd into the major tick labels below them.
+        ax_delta.xaxis.set_minor_formatter(NullFormatter())
 
-        obs_times, obs_unc = transient.light_curve_times, transient.light_curve_uncertainties  
+        obs_times, obs_unc = transient.light_curve_times, transient.light_curve_uncertainties
         det_times = obs_times[filt][np.isfinite(obs_unc[filt])]
         
         if det_times.size>0: ## show scatter
             ax_delta = fig.axes[cnt+n_axes]
-            diff_per_data, _ = mismatches[filt]
+            offset, total_unc, signed_diff = mismatches[filt]
+            # signed, normalized residual: (data - model) / sigma_tot, in
+            # units of sigma, e.g. +2 reads as "2 sigma above the model".
+            normalized_residual = signed_diff / np.sqrt(total_unc)
 
             delta_ylim = ax_delta.get_ylim()
-            dylim = (min(delta_ylim[0], 0.9*min(diff_per_data)), 
-                    max(delta_ylim[1], 1.1*max(diff_per_data)))
+            lo, hi = np.min(normalized_residual), np.max(normalized_residual)
+            pad = 0.1 * max(hi - lo, 1e-6)
+            dylim = (min(delta_ylim[0], lo - pad),
+                    max(delta_ylim[1], hi + pad))
             ax_delta.set_ylim(dylim)
 
-            ax_delta.scatter(det_times, diff_per_data, color=fit_color, marker=marker)
+            ax_delta.scatter(det_times, normalized_residual, color=fit_color, marker=marker)
+            # old: unsigned, unnormalized residual (data - model)^2 in mag^2
+            # -- swap the two lines above/below back if this is needed again.
+            # ax_delta.scatter(det_times, offset, color=fit_color, marker=marker)
 
             if ax_sum.get_legend():
                 ax_sum.get_legend().remove()
@@ -96,9 +126,10 @@ def init_em_analysis_plot(plot_filters, ncols):
     filter_names = list(plot_filters.keys())
     fig, axes = analysis_plot_geometry(filter_names, ncols=ncols)
     fig.supylabel("AB magnitude", rotation=90)
-    fig.supxlabel("Time [days]")
+    fig.supxlabel("Time [days]", fontsize=14)
     init_limits = np.array([1000, -1000])# dummy values
-    
+    nrow = int(np.ceil(len(filter_names) / ncols))
+
     for cnt, filt in enumerate(filter_names):
         # summary plot
         row, col = divmod(cnt, ncols)
@@ -113,9 +144,20 @@ def init_em_analysis_plot(plot_filters, ncols):
                                         size='40%',
                                         sharex=ax_sum,
                                         pad=0.1)
-        # ax_delta.axhline(0, linestyle='--', color='k')
-        ax_delta.set_ylabel(r"$\Delta$ mag")
-        ax_delta.set_ylim(0,1e-9)
+        ax_delta.axhline(0, linestyle='--', color='k', linewidth=1)
+        ax_delta.set_ylabel(r"$\Delta / \sigma$")
+        ax_delta.set_ylim(-5, 5)
+        # old (unsigned, unnormalized Δmag = (data-model)^2, mag^2):
+        # ax_delta.set_ylabel(r"$\Delta$ mag")
+        # ax_delta.set_ylim(0,1e-9)
+
+        # Every row except the bottom-most one previously left ax_delta's
+        # x-tick labels visible (sharex only syncs limits/scale, not label
+        # visibility), so the log-scale minor tick labels of one row
+        # collided with the row below it into an unreadable overlap.
+        if row < nrow - 1:
+            plt.setp(ax_delta.get_xticklabels(), visible=False)
+            plt.setp(ax_delta.get_xticklabels(minor=True), visible=False)
     return fig
 
 def plot_bestfit_with_errors(ax_sum, time, mag_plot, error_budget, 
@@ -408,8 +450,13 @@ def adjust_observations(ax, transient, filt, xlim, fix_ylim):
 
     ax.set_xlim(xlim)
     # ax_delta.set_xlim(xlim)
-    if xlim[0] > 0:
-        ax.set_xscale('log')
+    # old: log-scale x-axis. On a typical ~20-day window this leaves only
+    # 1-2 major ticks visible (e.g. just "10^0"), which reads as almost no
+    # tick labels at all. Switched to linear (matches the Astro-Colibri
+    # style plot in fitting/plot_bestfit.py) for evenly-spaced ticks
+    # regardless of the time window. Re-enable by uncommenting below.
+    # if xlim[0] > 0:
+    #     ax.set_xscale('log')
     if fix_ylim:
         ax.set_ylim(fix_ylim)
     else:
