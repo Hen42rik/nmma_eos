@@ -10,22 +10,23 @@ from bilby.core.utils import decode_bilby_json
 import scipy.signal
 
 from ..core.utils import NumpyEncoder
+
 # from sncosmo.bandpasses import _BANDPASSES
 
 
-def load_em_observations(filename, args=None, format='observations'):
+def load_em_observations(filename, args=None, format="observations"):
     """
     Reads in lightcurve data from a file and returns data in nmma standard format.
 
     Available formats are
-    
+
     Args:
-    - filename (str): 
+    - filename (str):
         Path to lightcurve file
     - args (Namespace, optional):
         Namespace containing additional arguments, such as time format.
         If not provided, the function will use the default time format 'mjd'.
-    - format (str): 
+    - format (str):
         The format of the input file. This can be 'standard', 'observations' or 'model'.
         'standard' uses the internal format of nmma lightcurve data as a dict in the form {filter_name: {'time': observation_times (list), 'mag': observed_magnitudes (list), 'mag_error': observed_errors (list)}}.
         'observations' uses the format of observations as a text file with columns: time, filter, mag, mag_error and transforms them to a dict in the same format as 'standard'.
@@ -35,24 +36,25 @@ def load_em_observations(filename, args=None, format='observations'):
     - data (dict): Dictionary containing the lightcurve data from the file. The keys are generally 'time' and each of the filters in the file as well as their accompanying error values.
     """
     if isinstance(filename, dict):
-        return filename     # assume it is already in the correct format
+        return filename  # assume it is already in the correct format
     if isinstance(filename, argparse.Namespace):
         args = filename
         filename = args.light_curve_data
     if isinstance(filename, dict):
-        return filename     # assume it is already in the correct format
-    
+        return filename  # assume it is already in the correct format
+
     if filename is None:
         raise ValueError("No filename provided for lightcurve data.")
-    
+
     if filename.endswith(".json"):
-        data =  read_lc_from_json(filename)
-    
+        data = read_lc_from_json(filename)
+
     else:
-        data =  read_lc_from_csv(filename, args, format=format)
-    return {filt: 
-            {k: np.array(vals) for k, vals in filt_dict.items()} 
-            for filt, filt_dict in data.items()}
+        data = read_lc_from_csv(filename, args, format=format)
+    return {
+        filt: {k: np.array(vals) for k, vals in filt_dict.items()}
+        for filt, filt_dict in data.items()
+    }
 
 
 def read_lc_from_json(filename):
@@ -61,66 +63,85 @@ def read_lc_from_json(filename):
         data = json.load(f, object_hook=decode_bilby_json)
 
     # but we check - if given in 'model' format, we are ready to convert it
-    if "time" in data: # indicates model_format
+    if "time" in data:  # indicates model_format
         new_data = {}
         for key, value in data.items():
             if key != "time" and not key.endswith("_error"):
                 new_data[key] = {
                     "time": data["time"],
                     "mag": value,
-                    "mag_error": data.get(f"{key}_error", np.zeros_like(data["time"]))
+                    "mag_error": data.get(f"{key}_error", np.zeros_like(data["time"])),
                 }
         data = new_data
 
     return data
 
+
 def read_lc_from_csv(filename, args, format):
     if "obs" in format:
         try:
             return strict_read_csv(filename, args)
-        except Exception as e:
+        except Exception:
             return generous_read_csv(filename)
 
-    elif 'model' in format:
-        #FIXME 
+    elif "model" in format:
+        # FIXME
         # For model lightcurves, the format is a simple text file with columns:
         # time, filter1, filter2, ..., filterN. filter1_error, ..., filterN_error are optional
         try:
             data = pd.read_csv(filename, delim_whitespace=True)
-        except:
-            data = pd.read_json(filename, orient = 'columns')
+        except Exception:
+            data = pd.read_json(filename, orient="columns")
 
         data = data.to_dict(orient="list")
         time = data.pop("time")
-        data = {filt: {'time':time, 'mag': mag, 'mag_error': data.get(filt + "_error", np.zeros_like(time))} for filt, mag in data.items() if not filt.endswith("_error")}
+        data = {
+            filt: {
+                "time": time,
+                "mag": mag,
+                "mag_error": data.get(filt + "_error", np.zeros_like(time)),
+            }
+            for filt, mag in data.items()
+            if not filt.endswith("_error")
+        }
 
         return data
     elif format == "standard":
-        raise ValueError("Standard format is not supported for reading from csv files. Please use json files instead.")
-    
+        raise ValueError(
+            "Standard format is not supported for reading from csv files. Please use json files instead."
+        )
+
+
 def generous_read_csv(filename):
     data = pd.read_csv(filename)
     out_data = {}
-    for filter in data['filter'].unique():
-        sub_data = data[data['filter'] == filter]
+    for filter in data["filter"].unique():
+        sub_data = data[data["filter"] == filter]
         out_data[filter] = {
-            'time': sub_data['mjd'].to_numpy(),
-            'mag': sub_data['mag_corr'].to_numpy(),
-            'mag_error': sub_data['magerr'].to_numpy()
+            "time": sub_data["mjd"].to_numpy(),
+            "mag": sub_data["mag_corr"].to_numpy(),
+            "mag_error": sub_data["magerr"].to_numpy(),
         }
-        non_dets = np.isnan(out_data[filter]['mag'])
-        out_data[filter]['mag'][non_dets] = sub_data['limiting_mag'].to_numpy()[non_dets]
-        out_data[filter]['mag_error'][non_dets] = np.inf
+        non_dets = np.isnan(out_data[filter]["mag"])
+        out_data[filter]["mag"][non_dets] = sub_data["limiting_mag"].to_numpy()[
+            non_dets
+        ]
+        out_data[filter]["mag_error"][non_dets] = np.inf
     return out_data
+
 
 def strict_read_csv(filename, args):
     with open(filename, "r") as f:
         lines = [line.rstrip("\n") for line in f]
-        lines = filter(None, lines) #get non-empty lines
+        lines = filter(None, lines)  # get non-empty lines
 
         data = {}
         for line in lines:
-            if line.startswith("#") or line.startswith("time") or line.startswith("mjd"):
+            if (
+                line.startswith("#")
+                or line.startswith("time")
+                or line.startswith("mjd")
+            ):
                 continue
             lineSplit = line.split(None)
             lineSplit = list(filter(None, lineSplit))
@@ -129,72 +150,119 @@ def strict_read_csv(filename, args):
             except ValueError:
                 format = getattr(args, "time_format", None)
                 if format is None:
-                    format = 'mjd'
+                    format = "mjd"
                 mjd = Time(lineSplit[0], format=format).mjd
             filt = lineSplit[1]
             mag = float(lineSplit[2])
             dmag = float(lineSplit[3])
 
             try:
-                data[filt]['time'].append(mjd)
-                data[filt]['mag'].append(mag)
-                data[filt]['mag_error'].append(dmag)
+                data[filt]["time"].append(mjd)
+                data[filt]["mag"].append(mag)
+                data[filt]["mag_error"].append(dmag)
             except KeyError:
-                data[filt] = {'time': [mjd], 'mag': [mag], 'mag_error': [dmag]}
+                data[filt] = {"time": [mjd], "mag": [mag], "mag_error": [dmag]}
     return data
 
-def write_em_observations(filename, data, format='observations'):
+
+def write_em_observations(filename, data, format="observations"):
     # write json file in standard format or csv file, either in observations or model format
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     if filename.endswith(".json"):
         write_lc_to_json(filename, data)
-    elif filename.endswith(".txt") or filename.endswith(".dat"):
+    # FIXME Weizmann: set_filename() (nmma/core/utils.py) accepts ".csv" as a
+    # valid output extension, but this function never recognized it, so
+    # --extension csv silently wrote no file at all (no error either, since
+    # there was no else branch).
+    elif (
+        filename.endswith(".txt")
+        or filename.endswith(".dat")
+        or filename.endswith(".csv")
+    ):
         write_lc_to_csv(filename, data, format=format)
+
 
 def write_lc_to_json(injection_outfile, data):
     with open(injection_outfile, "w") as f:
         json.dump(data, f, cls=NumpyEncoder, indent=2)
 
-def write_lc_to_csv(outfile, data, format= "observations"):
+
+def write_lc_to_csv(outfile, data, format="observations"):
+    # FIXME Weizmann: despite the name, this always wrote space-delimited
+    # text regardless of extension, so a ".csv" file was not actually
+    # comma-separated. Use a real comma when the output is genuinely
+    # ".csv"; keep the historical space delimiter for ".dat"/".txt".
+    delimiter = "," if str(outfile).endswith(".csv") else " "
     if format == "observations":
         all_times, all_filters, all_mags, all_errs = [], [], [], []
         for filt, sub_dict in data.items():
-            all_times.extend(sub_dict['time'])
-            all_mags.extend(sub_dict['mag'])
-            all_errs.extend(sub_dict['mag_error'])
-            all_filters.extend([filt] * len(sub_dict['time']))
+            all_times.extend(sub_dict["time"])
+            all_mags.extend(sub_dict["mag"])
+            all_errs.extend(sub_dict["mag_error"])
+            all_filters.extend([filt] * len(sub_dict["time"]))
         sort_indices = np.argsort(all_times)
-        out_data = np.array([
-                [Time(all_times[i], format="mjd").isot, all_filters[i], all_mags[i], all_errs[i]] 
-            for i in sort_indices], dtype=object)
-        np.savetxt(outfile, out_data, fmt="%s %s %.3f %.3f", delimiter=" ", header="time filter mag mag_error", comments="#")
-        
+        out_data = np.array(
+            [
+                [
+                    Time(all_times[i], format="mjd").isot,
+                    all_filters[i],
+                    all_mags[i],
+                    all_errs[i],
+                ]
+                for i in sort_indices
+            ],
+            dtype=object,
+        )
+        fmt = delimiter.join(["%s", "%s", "%.3f", "%.3f"])
+        header = delimiter.join(["time", "filter", "mag", "mag_error"])
+        np.savetxt(
+            outfile, out_data, fmt=fmt, delimiter=delimiter, header=header, comments="#"
+        )
+
     elif format == "model":
         # Lightcurve as issued by model, with or without errors
         mags, errs = [], []
         for filt, sub_dict in data.items():
-            mags.append(sub_dict['mag'])
-            if not np.all(np.isnan(sub_dict['mag_error'])):
-                errs.append(sub_dict['mag_error'])
-        time = sub_dict['time']
+            mags.append(sub_dict["mag"])
+            if not np.all(np.isnan(sub_dict["mag_error"])):
+                errs.append(sub_dict["mag_error"])
+        time = sub_dict["time"]
         out_data = np.column_stack((time, *mags, *errs))
-        header = "time " 
-        header += " ".join([filt for filt in data.keys()]) 
-        header += " ".join([filt + "_error" for filt in data.keys() if not np.all(np.isnan(data[filt]['mag_error']))])
-        np.savetxt(outfile, out_data, fmt="%.5f " + " ".join(["%.3f"] * (len(mags) + len(errs))), delimiter=" ", header=header, comments="#")
+        header_cols = (
+            ["time"]
+            + list(data.keys())
+            + [
+                filt + "_error"
+                for filt in data.keys()
+                if not np.all(np.isnan(data[filt]["mag_error"]))
+            ]
+        )
+        header = delimiter.join(header_cols)
+        fmt = delimiter.join(["%.5f"] + ["%.3f"] * (len(mags) + len(errs)))
+        np.savetxt(
+            outfile, out_data, fmt=fmt, delimiter=delimiter, header=header, comments="#"
+        )
 
     elif format in "bolometric":
         # Bolometric lightcurve
-        time = data['time']
-        lbol = data['lbol']
+        time = data["time"]
+        lbol = data["lbol"]
         out_data = np.column_stack((time, lbol))
-        np.savetxt( outfile, out_data, fmt="%.3f %.5e", delimiter=" ", header="t[days] Lbol[erg/s]" )
+        np.savetxt(
+            outfile,
+            out_data,
+            fmt="%.3f %.5e",
+            delimiter=" ",
+            header="t[days] Lbol[erg/s]",
+        )
+
 
 def convert_skyportal_lcs(filepath=None):
     if filepath is None:
         p = argparse.ArgumentParser()
-        p.add_argument("--filepath",type=str,nargs="*",
-        help="path to lightcurve files" )
+        p.add_argument(
+            "--filepath", type=str, nargs="*", help="path to lightcurve files"
+        )
         filepath = p.parse_args().filepath
     if isinstance(filepath, str):
         filepathes = [filepath]
@@ -219,20 +287,35 @@ def convert_skyportal_lcs(filepath=None):
         except Exception as e:
             print(f"input data {f} is not in the expected format {e}")
 
-        try: 
-            out_data = np.array([
-                [Time(row["mjd"], format="mjd").isot, row["filter"], row["mag"], row["magerr"]]
-                for row in data], dtype=object)
+        try:
+            out_data = np.array(
+                [
+                    [
+                        Time(row["mjd"], format="mjd").isot,
+                        row["filter"],
+                        row["mag"],
+                        row["magerr"],
+                    ]
+                    for row in data
+                ],
+                dtype=object,
+            )
             base, ext = os.path.splitext(f)
             outfile = base + ".dat"
-            np.savetxt(outfile, out_data, fmt="%s %s %.3f %.3f", delimiter=" ", header="time filter mag mag_error")
+            np.savetxt(
+                outfile,
+                out_data,
+                fmt="%s %s %.3f %.3f",
+                delimiter=" ",
+                header="time filter mag mag_error",
+            )
 
             print(f"Wrote reformatted lightcurve to {outfile}")
         except Exception as e:
             print(f"failed to format data in {f} {e}")
-    
 
-def read_training_data(filenames, format, data_type = "photometry", args=None):
+
+def read_training_data(filenames, format, data_type="photometry", args=None):
 
     # read the grid data
     if data_type == "photometry":
@@ -249,6 +332,7 @@ def read_training_data(filenames, format, data_type = "photometry", args=None):
         )
     else:
         raise ValueError("data-type should be photometry or spectroscopy")
+
 
 def read_spectroscopy_files(
     files, wavelength_min=3000.0, wavelength_max=10000.0, smooth=False
@@ -290,30 +374,37 @@ def read_spectroscopy_files(
     return data
 
 
-def read_photometry_files(files: list, filters: list = None, tt: np.array = np.linspace(0, 14, 100), format:str ="bulla") -> dict:
+def read_photometry_files(
+    files: list,
+    filters: list = None,
+    tt: np.array = np.linspace(0, 14, 100),
+    format: str = "bulla",
+) -> dict:
     """
     Read in a list of photometry files with given filenames and process them in a dictionary
-    
+
     Args:
         files (list): List of filenames with the photometry files.
         filters (list): List of photometry filters to be extracted.
         tt (np.array): Array containing the time grid at which photometry values are given.
         format (str): Which model we are considering. Currently supports
-        
+
     Returns:
-        data: Dictionary with keys being the given filenames and values being dictionaries themselves, with keys 
+        data: Dictionary with keys being the given filenames and values being dictionaries themselves, with keys
         being t (time) and specified filters and values being the time grid, and values the time grid and lightcurves.
     """
-    
+
     # First, check whether given format is supported in this function
     supported_formats = ["ztf", "bulla", "standard", "hdf5"]
     if format not in supported_formats:
         space = " "
-        raise ValueError(f"format {format} unknown. Currently supported formats are: {space.join(supported_formats)}")
+        raise ValueError(
+            f"format {format} unknown. Currently supported formats are: {space.join(supported_formats)}"
+        )
 
-    # Return value 
+    # Return value
     data = {}
-    
+
     # Iterate over all the given files and extract the lightcurve data from it
     for filename in files:
         name = (
@@ -359,10 +450,14 @@ def read_photometry_files(files: list, filters: list = None, tt: np.array = np.l
                 idx = np.where(group[magerror_key] != 99.0)[0]
                 if len(idx) < 2:
                     continue
-                data[name][filt] = np.interp(tt,
+                data[name][filt] = np.interp(
+                    tt,
                     group["jd"].iloc[idx] - jd_min,
-                    group[mag_key].iloc[idx],left=np.nan, right=np.nan )
-        
+                    group[mag_key].iloc[idx],
+                    left=np.nan,
+                    right=np.nan,
+                )
+
         # Bulla format
         elif format == "bulla":
             with open(filename, "r") as f:
@@ -454,7 +549,7 @@ def read_photometry_files(files: list, filters: list = None, tt: np.array = np.l
     return data
 
 
-#FIXME Legacy??? seems unused
+# FIXME Legacy??? seems unused
 def loadEventSpec(filename):
 
     data_out = np.loadtxt(filename)
