@@ -170,10 +170,7 @@ def write_em_observations(filename, data, format="observations"):
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     if filename.endswith(".json"):
         write_lc_to_json(filename, data)
-    # FIXME Weizmann: set_filename() (nmma/core/utils.py) accepts ".csv" as a
-    # valid output extension, but this function never recognized it, so
-    # --extension csv silently wrote no file at all (no error either, since
-    # there was no else branch).
+
     elif (
         filename.endswith(".txt")
         or filename.endswith(".dat")
@@ -188,10 +185,6 @@ def write_lc_to_json(injection_outfile, data):
 
 
 def write_lc_to_csv(outfile, data, format="observations"):
-    # FIXME Weizmann: despite the name, this always wrote space-delimited
-    # text regardless of extension, so a ".csv" file was not actually
-    # comma-separated. Use a real comma when the output is genuinely
-    # ".csv"; keep the historical space delimiter for ".dat"/".txt".
     delimiter = "," if str(outfile).endswith(".csv") else " "
     if format == "observations":
         all_times, all_filters, all_mags, all_errs = [], [], [], []

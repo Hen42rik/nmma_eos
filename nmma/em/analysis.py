@@ -25,15 +25,7 @@ def data_from_injection(args, filters, detection_limit):
         print(f"Loading existing injection lc from {inj_outfile}")
         full_data = io.load_em_observations(inj_outfile, format="model")
     else:
-        # FIXME Weizmann: nmma 0.2.3 saved the injection light curve with
         # keep_infinite_data=True (full time grid, non-detections marked
-        # mag_error=inf rather than dropped), so every filter shared the
-        # same length. That override was lost in a later refactor, so
-        # filters with different per-filter detection limits ended up
-        # differently trimmed before ever being written to disk. Restore
-        # keep_infinite_data=True for the save only; the fit's own `data`
-        # below is derived by filtering full_data the same way
-        # keep_infinite_data=False used to, so the fit is unaffected.
         full_data = create_light_curve_data(
             injection_params, args, inj_model, keep_infinite_data=True
         )
