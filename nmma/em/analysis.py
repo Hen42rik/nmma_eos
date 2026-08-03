@@ -23,10 +23,23 @@ def data_from_injection(args, filters, detection_limit):
     inj_outfile = set_filename(args.label, args, "_lc")
     if os.path.isfile(inj_outfile):
         print(f"Loading existing injection lc from {inj_outfile}")
-        data = io.load_em_observations(inj_outfile, format="model")
+        full_data = io.load_em_observations(inj_outfile, format="model")
     else:
-        data = create_light_curve_data(injection_params, args, inj_model)
-        io.write_em_observations(inj_outfile, data, format="model")
+        # keep_infinite_data=True (full time grid, non-detections marked
+        full_data = create_light_curve_data(
+            injection_params, args, inj_model, keep_infinite_data=True
+        )
+        io.write_em_observations(inj_outfile, full_data, format="model")
+    data = {
+        filt: {
+            key: val[
+                np.isfinite(full_data[filt]["mag"])
+                & np.isfinite(full_data[filt]["mag_error"])
+            ]
+            for key, val in filt_dict.items()
+        }
+        for filt, filt_dict in full_data.items()
+    }
     data = inspect_detection_limit(detection_limit, data)
     return data, injection_params
 
@@ -107,20 +120,21 @@ def bolometric_setup(args):
 
     return priors, likelihood, injection_parameters
 
+
 def analysis_setup(args):
-    
+
     filters = utils.set_filters(args)
-    if getattr(args, 'light_curve_data', None):
+    if getattr(args, "light_curve_data", None):
         # load observational data
-        data = io.load_em_observations(args, format='observations')
-        trigger_time = read_trigger_time(None,args)
-        injection_parameters = getattr(args, 'injection_parameters', None)
+        data = io.load_em_observations(args, format="observations")
+        trigger_time = read_trigger_time(None, args)
+        injection_parameters = getattr(args, "injection_parameters", None)
     else:
         detection_limit = utils.create_detection_limit(args, filters)
         # try to work with injection data instead
         data, injection_parameters = data_from_injection(args, filters, detection_limit)
-        trigger_time = injection_parameters.get('trigger_time',0)
-        
+        trigger_time = injection_parameters.get("trigger_time", 0)
+
     data = utils.cut_data_to_time_range(data, args, trigger_time)
     data = check_detections(data, args.remove_nondetections)
     filters_to_analyze = set_analysis_filters(filters, data)
@@ -315,8 +329,8 @@ def main(args=None):
         non_default = {}
     args = parsing_and_logging(multi_wavelength_analysis_parser, args)
     args.__dict__.update(non_default)
-    
-    if args.sampler == 'neuralnet':
+
+    if args.sampler == "neuralnet":
         nnanalysis(args)
     else:
         multi_analysis_loop(args, analysis_setup)
